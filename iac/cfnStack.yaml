@@ -1,0 +1,358 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to for the llm etl demo
+
+Parameters: 
+  foundationModel: 
+    Type: String 
+    Default: arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0
+    Description: The specific LLM model to use for this demo
+    AllowedValues:
+         - arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-premier-v1:0
+         - arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0
+
+Resources:
+  dataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-${AWS::AccountId}'
+
+  bedrockRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-bedrock-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub 'arn:aws:s3:::${dataBucket}'
+                  - !Sub 'arn:aws:s3:::${dataBucket}/*'
+        - PolicyName: LambdaExecution
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: '*'
+        - PolicyName: BedrockModel
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: 
+                  - !Ref foundationModel
+        - PolicyName: BedrockPromptAccess
+          PolicyDocument: 
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:GetPrompt
+                Resource: 
+                 - !Ref promptForCurated
+                 - !Ref promptForTransformed
+                 - !Sub '${promptForCurated}:*'
+                 - !Sub '${promptForTransformed}:*'
+
+  promptForCurated:
+    Type: AWS::Bedrock::Prompt
+    Properties:
+      Name: toCurated
+      DefaultVariant: default-curated
+      Variants:
+        - Name: default-curated
+          TemplateType: TEXT
+          ModelId: !Ref foundationModel
+          InferenceConfiguration:
+            Text:
+              MaxTokens: 2000
+              Temperature: 1
+              TopP: 0.999
+          TemplateConfiguration:
+            Text:
+              InputVariables:
+                    - Name: employeeList
+                    - Name: transactions
+              Text: >
+                This is a list of employees and shifts {{employeeList}}. 
+                Use said list to replace the appropiate cashier 
+                names in this transaction list: {{transactions}}. 
+                Output only the transactions and no explanations
+
+  promptForTransformed:
+    Type: AWS::Bedrock::Prompt
+    Properties:
+      Name: toTransformed
+      DefaultVariant: default-transformed
+      Variants:
+        - Name: default-transformed
+          TemplateType: TEXT
+          ModelId: !Ref foundationModel
+          InferenceConfiguration:
+            Text:
+              MaxTokens: 2000
+              Temperature: 1
+              TopP: 0.999
+          TemplateConfiguration:
+            Text:
+              InputVariables:
+                  - Name: sourceTable
+              Text: >
+                convert as a json the following table: {{sourceTable}} 
+                Field names are: 
+                transaction_id as int 
+                timestamp as str cashier as str 
+                total as floating point number 
+                Return only the json and no preambles
+
+  flowPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      PolicyName: flowAccess
+      RoleName: !Ref bedrockRole
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - bedrock:GetFlow
+            Resource: 
+              - !Ref etlFlow
+
+  etlFlow:
+    Type: AWS::Bedrock::Flow
+    Properties:
+      ExecutionRoleArn: !GetAtt bedrockRole.Arn
+      Name: !Sub '${AWS::StackName}-demo-flow'
+      Definition:
+        Connections:
+          - Type: Data
+            Name: toS3Employee
+            Source: inputNode
+            Target: employeeList
+            Configuration:
+              Data:
+                SourceOutput: document
+                TargetInput: objectKey
+          - Type: Data
+            Name: toS3Transaction
+            Source: inputNode
+            Target: transactions
+            Configuration:
+              Data:
+                SourceOutput: document
+                TargetInput: objectKey
+          - Type: Data
+            Name: toCuratedEmployee
+            Source: employeeList
+            Target: curateData
+            Configuration:
+              Data:
+                SourceOutput: s3Content
+                TargetInput: employeeList
+          - Type: Data
+            Name: toCurated
+            Source: transactions
+            Target: curateData
+            Configuration:
+              Data:
+                SourceOutput: s3Content
+                TargetInput: transactions
+          - Type: Data
+            Name: toTransformed
+            Source: curateData
+            Target: transformData
+            Configuration:
+              Data:
+                SourceOutput: modelCompletion
+                TargetInput: sourceTable
+          - Type: Data
+            Name: toOut
+            Source: transformData
+            Target: outputNode
+            Configuration:
+              Data:
+                SourceOutput: modelCompletion
+                TargetInput: document
+        Nodes:
+          - Name: inputNode
+            Type: Input
+            Outputs:
+              - Name: document
+                Type: Array
+          - Name: outputNode
+            Type: Output
+            Inputs:
+              - Name: document
+                Type: String
+                Expression: $.data
+          - Name: employeeList
+            Type: Retrieval
+            Inputs:
+              - Name: objectKey
+                Type: String
+                Expression: $.data[0]
+            Outputs:
+              - Name: s3Content
+                Type: String
+            Configuration:
+              Retrieval:
+                ServiceConfiguration:
+                  S3:
+                    BucketName: !Ref dataBucket
+          - Name: transactions
+            Type: Retrieval
+            Inputs:
+              - Name: objectKey
+                Type: String
+                Expression: $.data[1]
+            Outputs:
+              - Name: s3Content
+                Type: String
+            Configuration:
+              Retrieval:
+                ServiceConfiguration:
+                  S3:
+                    BucketName: !Ref dataBucket
+          - Name: curateData
+            Type: Prompt
+            Inputs:
+              - Name: employeeList
+                Type: String
+                Expression: $.data
+              - Name: transactions
+                Type: String
+                Expression: $.data
+            Outputs:
+              - Name: modelCompletion
+                Type: String
+            Configuration:
+              Prompt:
+                SourceConfiguration:
+                  Resource:
+                       PromptArn: !Ref promptForCurated
+          - Name: transformData
+            Type: Prompt
+            Inputs:
+              - Name: sourceTable
+                Type: String
+                Expression: $.data
+            Outputs:
+              - Name: modelCompletion
+                Type: String
+            Configuration:
+              Prompt:
+                SourceConfiguration:
+                  Resource:
+                       PromptArn: !Ref promptForTransformed
+  
+  dynamoTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PROVISIONED
+      ProvisionedThroughput: 
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      AttributeDefinitions:
+        - AttributeName: transaction_id
+          AttributeType: N
+      KeySchema:
+        - AttributeName: transaction_id
+          KeyType: HASH
+
+  lambdaDynamoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-lambda-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: DynamodbAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                Resource: 
+                  - !GetAtt dynamoTable.Arn
+  
+  publishLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-ddb-publish'
+      Role: !GetAtt lambdaDynamoRole.Arn
+      Handler: lambda_function.lambda_handler
+      Runtime: python3.12
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          DYNAMO_TABLE: !Ref dynamoTable
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          from botocore.exceptions import ClientError
+          from decimal import Decimal
+          import os
+
+          dynamodb = boto3.resource('dynamodb')
+          table_name = os.environ['DYNAMO_TABLE']
+          table = dynamodb.Table(table_name)
+
+          def lambda_handler(event, context):
+              input_string = event['node']['inputs'][0]['value'].replace("\n", "")
+              cleaned_input = json.loads(input_string, parse_float=Decimal)
+              for record in cleaned_input['transactions']:
+                  
+                  item = {
+                      'transaction_id': record['transaction_id'],
+                      'timestamp': record['timestamp'],
+                      'cashier': record['cashier'],
+                      'total': record['total'] }
+
+                  try:
+                      table.put_item(Item=item)
+                  except ClientError as e:
+                      return {
+                          'statusCode': 500,
+                          'body': json.dumps(f'Error writing to DynamoDB: {e.response["Error"]["Message"]}')}
+
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Records successfully written to DynamoDB.')}
+
+Outputs:
+  bucketName:
+    Description: Name of the data S3 bucket
+    Value: !Ref dataBucket
+  tableName:
+    Value: !Ref dynamoTable
+    Description: Name of the Dynamo table with the final data
+  modelUsed:
+    Value: !Ref foundationModel
+    Description: Name of the foundation model used in the demo
