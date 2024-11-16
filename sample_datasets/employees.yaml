@@ -1,0 +1,21 @@
+employees:
+  - name: John Smith
+    shift: AM
+  - name: Jane Garcia
+    shift: AM
+  - name: Emily Johnson
+    shift: AM
+  - name: Michael Brown
+    shift: PM
+  - name: William Davis
+    shift: PM
+  - name: Olivia Wilson
+    shift: AM
+  - name: James Moore
+    shift: PM
+  - name: Isabella Taylor
+    shift: PM
+  - name: Daniel Moore
+    shift: AM
+  - name: Sophia Garcia
+    shift: PM
