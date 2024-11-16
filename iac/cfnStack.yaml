@@ -4,7 +4,7 @@ Description: CloudFormation template to for the llm etl demo
 Parameters: 
   foundationModel: 
     Type: String 
-    Default: arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0
+    Default: arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-premier-v1:0
     Description: The specific LLM model to use for this demo
     AllowedValues:
          - arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-premier-v1:0
@@ -114,12 +114,14 @@ Resources:
               InputVariables:
                   - Name: sourceTable
               Text: >
-                convert as a json the following table: {{sourceTable}} 
-                Field names are: 
-                transaction_id as int 
-                timestamp as str cashier as str 
-                total as floating point number 
-                Return only the json and no preambles
+                You will be given a table in tsv. 
+                Convert to json the following table: {{sourceTable}}  
+                Field names are:  
+                transaction_id as int  
+                timestamp as str 
+                cashier as str  
+                sales_total as floating point number.
+                Return only the json and no preambles, no explanations and no "`"
 
   flowPolicy:
     Type: AWS::IAM::RolePolicy
@@ -183,12 +185,20 @@ Resources:
                 SourceOutput: modelCompletion
                 TargetInput: sourceTable
           - Type: Data
-            Name: toOut
+            Name: toLambda
             Source: transformData
+            Target: ddbPublishLambda
+            Configuration:
+              Data: 
+                SourceOutput: modelCompletion
+                TargetInput: codeHookInput
+          - Type: Data
+            Name: toOut
+            Source: ddbPublishLambda
             Target: outputNode
             Configuration:
               Data:
-                SourceOutput: modelCompletion
+                SourceOutput: functionResponse
                 TargetInput: document
         Nodes:
           - Name: inputNode
@@ -200,7 +210,7 @@ Resources:
             Type: Output
             Inputs:
               - Name: document
-                Type: String
+                Type: Object
                 Expression: $.data
           - Name: employeeList
             Type: Retrieval
@@ -261,7 +271,19 @@ Resources:
                 SourceConfiguration:
                   Resource:
                        PromptArn: !Ref promptForTransformed
-  
+          - Name: ddbPublishLambda
+            Type: LambdaFunction
+            Inputs:
+                 - Name: codeHookInput
+                   Type: String
+                   Expression: $.data
+            Outputs:
+                 - Name: functionResponse
+                   Type: Object
+            Configuration:
+              LambdaFunction:
+                LambdaArn: !GetAtt publishLambda.Arn
+
   dynamoTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -305,9 +327,9 @@ Resources:
     Properties:
       FunctionName: !Sub '${AWS::StackName}-ddb-publish'
       Role: !GetAtt lambdaDynamoRole.Arn
-      Handler: lambda_function.lambda_handler
+      Handler: index.lambda_handler
       Runtime: python3.12
-      Timeout: 30
+      Timeout: 60
       MemorySize: 128
       Environment:
         Variables:
@@ -327,13 +349,13 @@ Resources:
           def lambda_handler(event, context):
               input_string = event['node']['inputs'][0]['value'].replace("\n", "")
               cleaned_input = json.loads(input_string, parse_float=Decimal)
-              for record in cleaned_input['transactions']:
+              for record in cleaned_input:
                   
                   item = {
                       'transaction_id': record['transaction_id'],
                       'timestamp': record['timestamp'],
                       'cashier': record['cashier'],
-                      'total': record['total'] }
+                      'sales_total': record['sales_total'] }
 
                   try:
                       table.put_item(Item=item)

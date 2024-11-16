@@ -12,7 +12,7 @@ def lambda_handler(event, context):
     input_string = event['node']['inputs'][0]['value'].replace("\n", "")
     cleaned_input = json.loads(input_string, parse_float=Decimal)
 
-    for record in cleaned_input['transactions']:
+    for record in cleaned_input:
         
         item = {
             'transaction_id': record['transaction_id'],
