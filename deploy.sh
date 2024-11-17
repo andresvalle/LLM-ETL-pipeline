@@ -8,7 +8,7 @@ aws cloudformation deploy --template-file ./iac/cfnStack.yaml \
                           --stack-name $STACK_NAME \
                           --capabilities  CAPABILITY_NAMED_IAM \
                           --region $REGION \
-                          --tags environment=testing
+                          --tags environment=llmdemo
 
 # Uploading the datasets to S3
 BUCKET=$(aws cloudformation describe-stacks --region $REGION \
