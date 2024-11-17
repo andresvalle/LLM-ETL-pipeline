@@ -3,7 +3,7 @@
 STACK_NAME="llm-etl"
 REGION="us-east-1"
 
-aws cloudformation deploy --template-file cfnStack.yaml \
+aws cloudformation deploy --template-file ./iac/cfnStack.yaml \
                           --stack-name $STACK_NAME \
                           --capabilities  CAPABILITY_NAMED_IAM \
                           --region $REGION \
