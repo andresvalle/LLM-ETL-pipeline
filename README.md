@@ -27,15 +27,15 @@ timestamp |	name	| sales_total
 
 
 ## Architecture Diagram
-This demo leverages *Bedrock Prompt Flows* to automate
+This demo uses *AWS* resources, especially *Bedrock Prompt Flows* to orchestrate the data extraction and transformation and outputs the cleaned data to a DynamoDB table.
 
 ![High level overview](./figures/overview_transparent.svg "Bedrock Pipeline Overview")
 
-The flow receives the S3 paths to the data as inputs and injects them in pre-built prompts that infers the corrections necessary 
+The flow receives S3 paths to an employee list and transaction data as inputs and injects them in pre-built prompts that infer the necessary corrections.
 
 ![ETL prompt flow](./figures/onlyflow_transparent.svg "ETL Bedrock Prompt Flow")
 
-## How to use
+## Instructions
 ### Requirements
 - An AWS account with access to Bedrock's foundation models. To verify or request access to the models consult:
 https://docs.aws.amazon.com/bedrock/latest/userguide/model-access-modify.html
@@ -57,11 +57,19 @@ The `iac/cfnStack.yaml` file contains a CloudFormation template that will deploy
 Use the `deploy.sh` script to create the stack and upload the sample files to S3. By default the stack is deployed to `us-east-1`, but this value can be changed in the script.
 
 ### Using the Prompt Flow
+To invoke the flow: 
+1. Navigate to the *AWS Bedrock* console and select the *Prompt Flows* menu. 
+2. Open the `llm-etl-demo-flow`
+3. Select the `Edit in flow builder` option
+4. Input an array that contains:
+    1. The names to use as reference
+    2. The transactions to clean. Example: 
 
-
+```
+['employees.yaml','obfuscated_transactions.tsv']
+```
 
 ### Cleanup
-
 Use the `cleanup.sh` script to empty the S3 bucket and destroy all resources in the stack.
 
 ### Picking the right model
