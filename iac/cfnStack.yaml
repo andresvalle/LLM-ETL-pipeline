@@ -5,7 +5,7 @@ Parameters:
   foundationModel: 
     Type: String 
     Default: arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-premier-v1:0
-    Description: The specific LLM model to use for this demo
+    Description: The specific LLM to use for this demo
     AllowedValues:
          - arn:aws:bedrock:us-east-1::foundation-model/amazon.titan-text-premier-v1:0
          - arn:aws:bedrock:us-east-1::foundation-model/anthropic.claude-3-5-sonnet-20240620-v1:0
