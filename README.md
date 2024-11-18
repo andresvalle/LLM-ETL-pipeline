@@ -29,11 +29,11 @@ timestamp |	name	| sales_total
 ## Architecture Diagram
 This demo uses *AWS* resources, especially *Bedrock Prompt Flows* to orchestrate the data extraction and transformation and outputs the cleaned data to a DynamoDB table.
 
-![High level overview](./figures/overview_transparent.svg "Bedrock Pipeline Overview")
+![High level overview](./figures/overview_white.svg "Bedrock Pipeline Overview")
 
 The flow receives S3 paths to an employee list and transaction data as inputs and injects them in pre-built prompts that infer the necessary corrections.
 
-![ETL prompt flow](./figures/onlyflow_transparent.svg "ETL Bedrock Prompt Flow")
+![ETL prompt flow](./figures/onlyflow_white.svg "ETL Bedrock Prompt Flow")
 
 ## Instructions
 ### Requirements
